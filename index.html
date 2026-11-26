@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>祝媽媽聖誕節快樂 🎄</title>
+    <!-- 引入 Tailwind CSS 進行 UI 排版與樣式設計 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Google Fonts 增加節慶與優雅感 -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700&family=Pacifico&display=swap" rel="stylesheet">
+    <!-- 引入 Three.js 核心庫 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- 引入 GSAP 動畫庫來做平滑的 UI 動畫 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden; /* 防止滾動 */
+            background-color: #050510; /* 深邃的夜空背景色 */
+            font-family: 'Noto Serif TC', serif;
+        }
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1; /* 3D 畫布在底層 */
+        }
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10; /* UI 在上層 */
+            pointer-events: none; /* 讓滑鼠事件穿透到 3D 畫布 */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 2rem;
+        }
+        /* 玻璃擬態樣式 */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+            pointer-events: auto; /* 允許 UI 元素被點擊 */
+        }
+        .text-shadow {
+            text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+        }
+        /* 祝福卡片彈窗 */
+        #message-modal {
+            display: none;
+            opacity: 0;
+            pointer-events: auto;
+        }
+        .cursor-pointer-auto {
+            pointer-events: auto;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 3D 畫布容器 -->
+    <div id="canvas-container"></div>
+
+    <!-- UI 覆蓋層 -->
+    <div id="ui-layer">
+        <!-- 頂部標題 -->
+        <div class="text-center mt-8">
+            <h1 class="text-5xl md:text-7xl text-white font-bold text-shadow" style="font-family: 'Pacifico', cursive;">Merry Christmas!</h1>
+            <h2 class="text-3xl md:text-4xl text-yellow-300 mt-4 font-bold text-shadow tracking-widest">祝最愛的媽媽，聖誕節快樂 🎄</h2>
+            <p class="text-white mt-4 text-lg text-shadow opacity-90 animate-pulse">✨ 轉動滑鼠看看四周，並點擊聖誕樹下的禮物 ✨</p>
+        </div>
+
+        <!-- 彈出的祝福卡片 -->
+        <div id="message-modal" class="fixed inset-0 flex items-center justify-center z-50">
+            <div class="absolute inset-0 bg-black bg-opacity-40 backdrop-blur-sm cursor-pointer-auto" id="modal-bg"></div>
+            <div class="glass-panel rounded-3xl p-8 md:p-12 max-w-lg w-[90%] text-center relative z-10 transform scale-90 transition-transform duration-300">
+                <div class="text-6xl mb-4">🎁</div>
+                <h3 class="text-2xl md:text-3xl text-white font-bold mb-6" id="modal-title">給媽媽的訊息</h3>
+                <p class="text-lg md:text-xl text-gray-100 leading-relaxed mb-8" id="modal-text">這裡會顯示祝福語...</p>
+                <button id="close-modal" class="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transform transition hover:scale-105">
+                    關閉禮物
+                </button>
+            </div>
+        </div>
+
+        <!-- 底部裝飾或簽名 -->
+        <div class="text-center text-white text-shadow opacity-70 mb-4">
+            <p>Made with ❤️ specially for you</p>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // Three.js 場景設定
+        // ==========================================
+        let scene, camera, renderer;
+        let treeGroup, snowParticles, starLight;
+        let gifts = [];
+        let mouse = new THREE.Vector2();
+        let targetMouse = new THREE.Vector2(); // 用於平滑視角移動
+        let raycaster = new THREE.Raycaster();
+        let hoveredGift = null;
+        
+        // 禮物資料
+        const giftData = [
+            { color: 0xff3333, ribbon: 0xffffff, title: "給最美麗的媽媽", message: "謝謝您一直以來無微不至的照顧，辛苦了！希望您每天都能像今天一樣開心！" },
+            { color: 0x3366ff, ribbon: 0xffd700, title: "祝您身體健康", message: "您的健康是我最大的願望。新的一年，我們也要一起去好多地方玩哦！" },
+            { color: 0xffcc00, ribbon: 0xff3333, title: "永遠愛您", message: "雖然我不常說出口，但您是我生命中最重要的人。聖誕節快樂，我愛您！❤️" }
+        ];
+
+        const clock = new THREE.Clock(); // 修復: 確保在呼叫 animate() 前已經初始化 clock
+
+        init();
+        animate();
+
+        function init() {
+            // 1. 初始化場景、相機、渲染器
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            
+            // 加入些微的霧效，增加冬天的朦朧感
+            scene.fog = new THREE.FogExp2(0x050510, 0.03);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 5, 18);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // 2. 燈光設定
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            scene.add(ambientLight);
+
+            const moonLight = new THREE.DirectionalLight(0x88bbff, 1);
+            moonLight.position.set(10, 20, 10);
+            moonLight.castShadow = true;
+            moonLight.shadow.camera.left = -15;
+            moonLight.shadow.camera.right = 15;
+            moonLight.shadow.camera.top = 15;
+            moonLight.shadow.camera.bottom = -15;
+            scene.add(moonLight);
+
+            // 3. 建立場景物件
+            createEnvironment();
+            createTree();
+            createGifts();
+            createSnow();
+
+            // 4. 事件監聽
+            window.addEventListener('resize', onWindowResize);
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('touchmove', onTouchMove, { passive: false });
+            
+            // 點擊事件 (用於開啟禮物)
+            window.addEventListener('click', onClick);
+            // 觸控點擊 (支援手機)
+            window.addEventListener('touchstart', onTouchStart, { passive: false });
+
+            // UI 按鈕事件
+            document.getElementById('close-modal').addEventListener('click', closeModal);
+            document.getElementById('modal-bg').addEventListener('click', closeModal);
+        }
+
+        function createEnvironment() {
+            // 雪地
+            const groundGeometry = new THREE.PlaneGeometry(50, 50);
+            const groundMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xeeeeff, 
+                roughness: 0.8,
+                metalness: 0.1
+            });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            // 遠處的星星背景
+            const starGeo = new THREE.BufferGeometry();
+            const starCount = 500;
+            const starPos = new Float32Array(starCount * 3);
+            for(let i=0; i<starCount*3; i+=3) {
+                starPos[i] = (Math.random() - 0.5) * 100;
+                starPos[i+1] = Math.random() * 50;
+                starPos[i+2] = (Math.random() - 0.5) * 100 - 20;
+            }
+            starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+            const starMat = new THREE.PointsMaterial({color: 0xffffff, size: 0.1, transparent: true, opacity: 0.8});
+            const stars = new THREE.Points(starGeo, starMat);
+            scene.add(stars);
+        }
+
+        function createTree() {
+            treeGroup = new THREE.Group();
+            
+            // 樹幹
+            const trunkGeo = new THREE.CylinderGeometry(0.8, 0.8, 2, 8);
+            const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a2e00, roughness: 1 });
+            const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+            trunk.position.y = 1;
+            trunk.castShadow = true;
+            treeGroup.add(trunk);
+
+            // 樹葉層 (三層圓錐)
+            const leafMat = new THREE.MeshStandardMaterial({ color: 0x0f5e1e, roughness: 0.9 });
+            
+            const level1 = new THREE.Mesh(new THREE.ConeGeometry(4, 5, 12), leafMat);
+            level1.position.y = 4.5;
+            level1.castShadow = true;
+            treeGroup.add(level1);
+
+            const level2 = new THREE.Mesh(new THREE.ConeGeometry(3.2, 4.5, 12), leafMat);
+            level2.position.y = 7.5;
+            level2.castShadow = true;
+            treeGroup.add(level2);
+
+            const level3 = new THREE.Mesh(new THREE.ConeGeometry(2.4, 4, 12), leafMat);
+            level3.position.y = 10.5;
+            level3.castShadow = true;
+            treeGroup.add(level3);
+
+            // 裝飾彩球
+            const ballGeo = new THREE.SphereGeometry(0.3, 16, 16);
+            const colors = [0xff0000, 0xffd700, 0x00aaff, 0xff00ff];
+            
+            for(let i=0; i<30; i++) {
+                const color = colors[Math.floor(Math.random() * colors.length)];
+                const ballMat = new THREE.MeshStandardMaterial({ 
+                    color: color, 
+                    roughness: 0.1, 
+                    metalness: 0.8,
+                    emissive: color,
+                    emissiveIntensity: 0.2
+                });
+                const ball = new THREE.Mesh(ballGeo, ballMat);
+                
+                // 隨機分佈在樹的表面 (簡易數學模擬)
+                const y = Math.random() * 8 + 3; 
+                const radius = (12 - y) * 0.35 + 0.5; // 高度越高半徑越小
+                const angle = Math.random() * Math.PI * 2;
+                
+                ball.position.set(
+                    Math.cos(angle) * radius,
+                    y,
+                    Math.sin(angle) * radius
+                );
+                treeGroup.add(ball);
+            }
+
+            // 頂部星星
+            const starShape = new THREE.OctahedronGeometry(0.6, 0);
+            const starMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xffd700, 
+                emissive: 0xffd700, 
+                emissiveIntensity: 0.8 
+            });
+            const star = new THREE.Mesh(starShape, starMaterial);
+            star.position.y = 13;
+            treeGroup.add(star);
+
+            // 星星的光暈
+            starLight = new THREE.PointLight(0xffdf00, 1.5, 10);
+            starLight.position.set(0, 13, 0);
+            treeGroup.add(starLight);
+
+            // 加入些微的閃爍燈光
+            const colorLight1 = new THREE.PointLight(0xff0000, 1, 8);
+            colorLight1.position.set(2, 5, 2);
+            treeGroup.add(colorLight1);
+            
+            const colorLight2 = new THREE.PointLight(0x0000ff, 1, 8);
+            colorLight2.position.set(-2, 8, -2);
+            treeGroup.add(colorLight2);
+
+            scene.add(treeGroup);
+        }
+
+        function createGifts() {
+            const boxGeo = new THREE.BoxGeometry(1.5, 1.5, 1.5);
+            
+            giftData.forEach((data, index) => {
+                const group = new THREE.Group();
+                
+                // 盒子本體
+                const boxMat = new THREE.MeshStandardMaterial({ color: data.color, roughness: 0.5 });
+                const box = new THREE.Mesh(boxGeo, boxMat);
+                box.castShadow = true;
+                group.add(box);
+
+                // 緞帶 (十字)
+                const ribbonMat = new THREE.MeshStandardMaterial({ color: data.ribbon, roughness: 0.2 });
+                const ribbonGeo1 = new THREE.BoxGeometry(1.52, 1.52, 0.2);
+                const ribbon1 = new THREE.Mesh(ribbonGeo1, ribbonMat);
+                group.add(ribbon1);
+                
+                const ribbonGeo2 = new THREE.BoxGeometry(0.2, 1.52, 1.52);
+                const ribbon2 = new THREE.Mesh(ribbonGeo2, ribbonMat);
+                group.add(ribbon2);
+
+                // 位置排成半圓形在樹前
+                const angle = (index - 1) * 0.8; // -0.8, 0, 0.8
+                const radius = 4.5;
+                group.position.set(
+                    Math.sin(angle) * radius,
+                    0.75, // 盒子一半高度
+                    Math.cos(angle) * radius + 2 // 往前移一點
+                );
+
+                // 儲存資料用於互動
+                group.userData = {
+                    isGift: true,
+                    title: data.title,
+                    message: data.message,
+                    originalY: group.position.y,
+                    timeOffset: Math.random() * Math.PI * 2 // 用於漂浮動畫錯開時間
+                };
+
+                gifts.push(group);
+                scene.add(group);
+            });
+        }
+
+        function createSnow() {
+            const particleCount = 2000;
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(particleCount * 3);
+            const velocities = [];
+
+            for (let i = 0; i < particleCount; i++) {
+                positions[i * 3] = (Math.random() - 0.5) * 40; // x
+                positions[i * 3 + 1] = Math.random() * 30;     // y
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 40; // z
+                
+                velocities.push({
+                    y: -(Math.random() * 0.05 + 0.02),
+                    x: (Math.random() - 0.5) * 0.02
+                });
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+            // 圓形雪花紋理 (使用 Canvas 產生，不依賴外部圖片)
+            const canvas = document.createElement('canvas');
+            canvas.width = 32;
+            canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+            gradient.addColorStop(0, 'rgba(255,255,255,1)');
+            gradient.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 32, 32);
+            const texture = new THREE.CanvasTexture(canvas);
+
+            const material = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 0.4,
+                map: texture,
+                transparent: true,
+                opacity: 0.8,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
+            });
+
+            snowParticles = new THREE.Points(geometry, material);
+            snowParticles.userData = { velocities: velocities };
+            scene.add(snowParticles);
+        }
+
+        // ==========================================
+        // 互動邏輯與事件
+        // ==========================================
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function onMouseMove(event) {
+            // 計算正規化滑鼠座標 (-1 to +1)
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // 用於視角移動
+            targetMouse.x = mouse.x;
+            targetMouse.y = mouse.y;
+        }
+
+        function onTouchMove(event) {
+            if(event.touches.length > 0) {
+                mouse.x = (event.touches[0].clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.touches[0].clientY / window.innerHeight) * 2 + 1;
+                targetMouse.x = mouse.x;
+                targetMouse.y = mouse.y;
+            }
+        }
+
+        // 檢查滑鼠是否懸停在禮物上
+        function checkIntersection() {
+            raycaster.setFromCamera(mouse, camera);
+            
+            // 只檢測禮物陣列
+            // 由於禮物是 Group，我們檢查它裡面的 Mesh
+            let allMeshes = [];
+            gifts.forEach(g => {
+                g.children.forEach(c => allMeshes.push(c));
+            });
+
+            const intersects = raycaster.intersectObjects(allMeshes);
+
+            if (intersects.length > 0) {
+                document.body.style.cursor = 'pointer';
+                // 找到對應的 parent group
+                const object = intersects[0].object.parent; 
+                
+                if (hoveredGift !== object) {
+                    // 如果原本有懸停別的，先復原
+                    if (hoveredGift) {
+                        gsap.to(hoveredGift.scale, {x: 1, y: 1, z: 1, duration: 0.3});
+                    }
+                    hoveredGift = object;
+                    // 放大特效
+                    gsap.to(hoveredGift.scale, {x: 1.15, y: 1.15, z: 1.15, duration: 0.3, ease: "back.out(1.7)"});
+                }
+            } else {
+                document.body.style.cursor = 'default';
+                if (hoveredGift) {
+                    gsap.to(hoveredGift.scale, {x: 1, y: 1, z: 1, duration: 0.3});
+                    hoveredGift = null;
+                }
+            }
+        }
+
+        function onClick(event) {
+            if (hoveredGift && hoveredGift.userData.isGift) {
+                openGiftMessage(hoveredGift.userData);
+            }
+        }
+
+        function onTouchStart(event) {
+            // 觸控時更新 mouse 位置並立刻檢查
+            if(event.touches.length > 0) {
+                mouse.x = (event.touches[0].clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.touches[0].clientY / window.innerHeight) * 2 + 1;
+                
+                raycaster.setFromCamera(mouse, camera);
+                let allMeshes = [];
+                gifts.forEach(g => g.children.forEach(c => allMeshes.push(c)));
+                const intersects = raycaster.intersectObjects(allMeshes);
+                
+                if (intersects.length > 0) {
+                    const object = intersects[0].object.parent;
+                    openGiftMessage(object.userData);
+                }
+            }
+        }
+
+        // 開啟 UI Modal
+        function openGiftMessage(data) {
+            const modal = document.getElementById('message-modal');
+            const title = document.getElementById('modal-title');
+            const text = document.getElementById('modal-text');
+            const panel = modal.querySelector('.glass-panel');
+
+            title.innerText = data.title;
+            text.innerText = data.message;
+
+            modal.style.display = 'flex';
+            
+            // GSAP 彈出動畫
+            gsap.to(modal, { opacity: 1, duration: 0.3 });
+            gsap.fromTo(panel, 
+                { scale: 0.8, y: 50 }, 
+                { scale: 1, y: 0, duration: 0.5, ease: "back.out(1.5)" }
+            );
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('message-modal');
+            const panel = modal.querySelector('.glass-panel');
+            
+            gsap.to(panel, { scale: 0.8, y: 30, duration: 0.3, ease: "power2.in" });
+            gsap.to(modal, { 
+                opacity: 0, 
+                duration: 0.3, 
+                onComplete: () => { modal.style.display = 'none'; } 
+            });
+        }
+
+        // ==========================================
+        // 動畫迴圈
+        // ==========================================
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = clock.getElapsedTime();
+
+            // 1. 平滑視角移動 (視差效果)
+            // 讓相機跟隨滑鼠，但有延遲感
+            camera.position.x += (targetMouse.x * 4 - camera.position.x) * 0.05;
+            camera.position.y += (-targetMouse.y * 2 + 5 - camera.position.y) * 0.05;
+            camera.lookAt(0, 5, 0); // 始終看著聖誕樹中心
+
+            // 2. 聖誕樹頂部星星光暈閃爍
+            if(starLight) {
+                starLight.intensity = 1.2 + Math.sin(time * 3) * 0.4;
+            }
+
+            // 3. 禮物漂浮動畫
+            gifts.forEach(gift => {
+                const data = gift.userData;
+                // 利用 sin 波形創造上下漂浮感，並加入一點旋轉
+                gift.position.y = data.originalY + Math.sin(time * 2 + data.timeOffset) * 0.2;
+                gift.rotation.y = Math.sin(time + data.timeOffset) * 0.1;
+            });
+
+            // 4. 雪花下落邏輯
+            if (snowParticles) {
+                const positions = snowParticles.geometry.attributes.position.array;
+                const velocities = snowParticles.userData.velocities;
+
+                for (let i = 0; i < velocities.length; i++) {
+                    // 更新 Y 軸 (下落)
+                    positions[i * 3 + 1] += velocities[i].y;
+                    // 更新 X 軸 (微風飄動)
+                    positions[i * 3] += velocities[i].x + Math.sin(time + i) * 0.01;
+
+                    // 如果雪花落到地面以下，重置到頂部
+                    if (positions[i * 3 + 1] < 0) {
+                        positions[i * 3 + 1] = 30; // 回到天上
+                        positions[i * 3] = (Math.random() - 0.5) * 40; // X 重新隨機
+                    }
+                }
+                snowParticles.geometry.attributes.position.needsUpdate = true;
+                // 讓整個雪花系統緩慢旋轉，增加空間感
+                snowParticles.rotation.y += 0.001; 
+            }
+
+            // 5. 射線檢測 (滑鼠懸停效果)
+            // 如果 modal 沒打開才進行檢測
+            if (document.getElementById('message-modal').style.display !== 'flex') {
+                checkIntersection();
+            }
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
